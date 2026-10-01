@@ -134,4 +134,7 @@ node tests/client-test.mjs    # 67 项：两个浏览器半边在 Node 假宿主
 
 ## 许可
 
-内部自用，未发布到 npm（两个包都是 `private: true`）。仓库当前未附开源 License，默认保留所有权利。
+两个包都是 `private: true`，**没有发布到 npm**，靠目录路径或 Git 地址安装即可。
+
+仓库目前**不含 License 文件** —— 公开可见，但按 GitHub 的默认约定不授予复制、修改、再分发的许可（保留所有权利）。
+如果希望别人能直接拿去改，加一份 MIT 即可。
