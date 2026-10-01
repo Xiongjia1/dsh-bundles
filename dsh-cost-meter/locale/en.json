@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Cost Meter",
+    "description": "Host-side balance read and usage pricing, plus a status strip with balance, session cost, turn cost, tokens and cache hit."
+  }
+}

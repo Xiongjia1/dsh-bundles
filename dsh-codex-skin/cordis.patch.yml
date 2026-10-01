@@ -1,0 +1,11 @@
+# Row contributed by @local/dsh-codex-skin.
+#
+# One row carries the appearance layer. Its Host half is empty (`index.js`); the work is in
+# `client.js`, which injects one plugin-owned stylesheet.
+#
+# Ordering note: this bundle has no configuration and no Host behaviour, so it can be
+# switched off and on freely. Pair it with @local/dsh-cost-meter for the balance and cost
+# strip — the two are independent, and either works without the other.
+- insert:
+    - id: codex-skin
+      name: '@local/dsh-codex-skin'

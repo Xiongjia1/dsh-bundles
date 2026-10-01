@@ -1,0 +1,51 @@
+# Row contributed by @local/dsh-cost-meter.
+#
+# One row carries both halves: index.js is the Host half (the `codexCost` session
+# projection plus the Host-side balance read), client.js is the browser half (the status
+# strip and its severity colours).
+#
+# `config` is read by the Host half. To change it, add a matching override for
+# `id: codex-cost` in your own profile layer
+# ($DSH_HOME/profiles/<name>/cordis.patch.yml): a matching override REPLACES this complete
+# config, and any field you omit falls back to the code default, so a minimal override such
+# as `config: { currency: USD }` is enough.
+#
+# Other recognized fields (defaults shown):
+#   readBalance: true           # false skips the balance read entirely
+#   balanceRefreshMs: 60000     # how often the Host re-reads the balance
+#   apiKeyEnv: DEEPSEEK_API_KEY # credential ref of the API-key route fallback
+#   apiBase: https://api.deepseek.com
+#   holidays: [...]             # Chinese statutory rest days, Beijing dates;
+#                               # omitted = the built-in 2026 schedule, [] = none
+#   thresholds:                 # colour bands for the strip; a boundary value takes the
+#     balance: { green: 50, orange: 15 }   # MORE severe band, so 50 is orange and 15 is red.
+#     session: { green: 10, red: 20 }      # balance reads total credit (balance + bonus);
+#                                          # session reads this chat, never the turn.
+#
+# Prices are units of `currency` per ONE MILLION tokens, taken from the published
+# DeepSeek tariff: https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+# Peak = Beijing time Mon-Fri 09:00-12:00 and 14:00-18:00, EXCLUDING statutory
+# holidays; weekends and every statutory holiday are off-peak at half of peak.
+- insert:
+    - id: codex-cost
+      name: '@local/dsh-cost-meter'
+      config:
+        currency: CNY
+        offPeakMode: auto
+        fallbackModel: deepseek-flash
+        readBalance: true
+        balanceRefreshMs: 60000
+        thresholds:
+          balance: { green: 50, orange: 15 }
+          session: { green: 10, red: 20 }
+        models:
+          deepseek-flash:
+            cacheHit: { peak: 0.04, offPeak: 0.02 }
+            cacheMiss: { peak: 2, offPeak: 1 }
+            cacheWrite: { peak: 2, offPeak: 1 }
+            output: { peak: 8, offPeak: 4 }
+          deepseek-v4-pro:
+            cacheHit: { peak: 0.3, offPeak: 0.15 }
+            cacheMiss: { peak: 9, offPeak: 4.5 }
+            cacheWrite: { peak: 9, offPeak: 4.5 }
+            output: { peak: 27, offPeak: 13.5 }

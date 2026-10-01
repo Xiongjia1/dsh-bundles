@@ -1,0 +1,33 @@
+{
+  "name": "@local/dsh-codex-skin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Codex-flavoured appearance layer for the DSH Web client: neutral palette, pale-blue user bubble, glowing white composer, chip-style inline code.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale",
+    "README.md"
+  ],
+  "meta": {
+    "title": "Codex Skin",
+    "description": "Appearance only: neutral palette, blue user bubble, composer halo, chip-style inline code. Light and dark."
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
