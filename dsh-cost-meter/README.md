@@ -1,5 +1,7 @@
 # @local/dsh-cost-meter
 
+> [DSH Bundle 工具集](../README.md) 成员之一。
+
 DSH Web 客户端的**余额 / 费用计量**：一个 bundle、一个 Loader 行、零依赖、无构建。
 
 ## 两个半边

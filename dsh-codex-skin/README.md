@@ -1,5 +1,7 @@
 # @local/dsh-codex-skin
 
+> [DSH Bundle 工具集](../README.md) 成员之一。
+
 DSH Web 客户端的**外观层**：一个 bundle、一个 Loader 行、零依赖、无构建。
 
 - Host 半边 `index.js`：**空的 `apply`**（纯客户端 bundle 需要一个可被 Row 导入的 Host 模块，仅此而已）。
