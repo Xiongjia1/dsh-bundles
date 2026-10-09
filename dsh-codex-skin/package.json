@@ -1,9 +1,9 @@
 {
   "name": "@local/dsh-codex-skin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Codex-flavoured appearance layer for the DSH Web client: neutral palette, pale-blue user bubble, glowing white composer, chip-style inline code.",
+  "description": "Codex-flavoured appearance layer for the DSH Web client: neutral palette, pale-blue user bubble, glowing white composer, chip-style inline code — plus the turn rail shown at every width and select-to-attach-to-the-next-message.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -19,7 +19,7 @@
   ],
   "meta": {
     "title": "Codex Skin",
-    "description": "Appearance only: neutral palette, blue user bubble, composer halo, chip-style inline code. Light and dark."
+    "description": "Appearance plus two interaction touches: the Codex turn rail at every width, and attaching a selected passage to the next message as a quote."
   },
   "dsh": {
     "bundle": {

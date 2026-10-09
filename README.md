@@ -13,14 +13,14 @@
 
 | bundle | 包名 | 做什么 | 依赖 |
 |---|---|---|---|
-| [`dsh-codex-skin/`](dsh-codex-skin/) | `@local/dsh-codex-skin` | **外观层**：Codex 风格的中性配色、淡蓝用户气泡、带光晕的白色输入框、无描边的行内代码 chip；浅色 / 深色两套 | 无 |
+| [`dsh-codex-skin/`](dsh-codex-skin/) | `@local/dsh-codex-skin` | **外观 + 两处 Codex 式交互**：中性配色、淡蓝用户气泡、带光晕的白色输入框、无描边的行内代码 chip（浅色 / 深色两套）；轮次小横条在任何窗口宽度都显示；划选回复可附加到下次对话 | 无 |
 | [`dsh-cost-meter/`](dsh-cost-meter/) | `@local/dsh-cost-meter` | **费用计量**：Host 侧折叠真实用量并按官方价目表计价、读取账户余额；输入框下方一条红绿黄状态条 | 无 |
 
 两个 bundle **互不依赖**：装任意一个都能单独用，两个一起装是推荐组合。
 
 ---
 
-### 1. `dsh-codex-skin` —— 只管外观
+### 1. `dsh-codex-skin` —— 外观，加两处交互
 
 把 DSH Web 客户端的观感拉向 Codex：更中性的灰阶、明确的层次和更收敛的圆角。
 
@@ -30,9 +30,19 @@
 - **代码**：fenced 卡带略深表头；行内代码是**无描边**的填充 chip
 - **其它**：底层色阶 `--dsw-static-neutral-bluish-*`、不透明菜单（去毛玻璃）、滚动条、文本选区、字体族与代码字体
 
-实现上只用**宿主自己的 CSS 变量**，声明在 `html body` / `html body *`，靠优先级压过主题声明而**不使用 `!important`**。
+两处交互：
+
+- **轮次小横条在任何宽度都显示**：DSH 自带的 `TurnNavigator` 被自己的
+  `@container (width<=900px){ .frame{display:none} }` 藏掉了，半屏窗口下整条轨道消失。本包在同一个容器条件里用更高
+  权重把它放回来，并按 Codex 的几何调横条（默认短、悬停变长、当前轮最长最深）。宿主的类名是**构建哈希**，
+  所以运行时从宿主样式表文本里解析前缀，绝不硬编码。
+- **划选回复 → 附加到下次对话**：对话阅读区内选中文字会浮出一个小工具条，点「添加到对话」即把选段作为引用块
+  附加到下一次消息；输入框上方出现「1 条注释」气泡，悬停显示全文，可单条移除。引用是**写进草稿**的，
+  所以气泡广告的就是真正会发出去的东西，撤销 / 刷新 / 手改草稿都不会与它不同步。
+
+实现上外观只用**宿主自己的 CSS 变量**，声明在 `html body` / `html body *`，靠优先级压过主题声明而**不使用 `!important`**。
 唯一一条元素级规则是去掉行内代码的描边 —— 那条描边是 DSH 渲染器自己画的，权重需要加在 markdown 容器上（`(0,1,4) > (0,1,2)`）。
-Host 半边刻意留空（`apply` 什么也不做），所以这个包只有样式，没有任何运行逻辑。
+Host 半边仍然刻意留空（`apply` 什么也不做），这个包的逻辑全在浏览器半边，所以改动**刷新页面即生效**。
 
 详见 [`dsh-codex-skin/README.md`](dsh-codex-skin/README.md)。
 
@@ -88,11 +98,11 @@ install_bundle <本仓库绝对路径>/dsh-cost-meter
 
 ```
 .
-├── dsh-codex-skin/          # bundle：Codex 风格外观层
+├── dsh-codex-skin/          # bundle：Codex 外观 + 轨道横条 + 划词附加
 │   ├── package.json         #   dsh.bundle.patch + dsh.client，声明两个半边
 │   ├── cordis.patch.yml     #   插入 profile 的那一行 Loader 行
-│   ├── index.js             #   Host 半边
-│   ├── client.js            #   浏览器半边（样式表）
+│   ├── index.js             #   Host 半边（空的）
+│   ├── client.js            #   浏览器半边（样式表 + composer 部件 + 选区工具条）
 │   ├── locale/{en,zh}.json  #   Plugins 列表里的显示名与描述
 │   └── README.md            #   细节说明
 ├── dsh-cost-meter/          # bundle：余额与费用计量（结构同上，客户端多一条状态条）
@@ -101,16 +111,19 @@ install_bundle <本仓库绝对路径>/dsh-cost-meter
 
 ## 测试
 
-全部是纯 Node 离线测试，不需要 DSH、不需要网络（114 项断言）：
+全部是纯 Node 离线测试，不需要 DSH、不需要网络（166 项断言）：
 
 ```
 node tests/fold-test.mjs      # 29 项：计价、高峰/节假日判定、钱包归一化、阈值合并
 node tests/apply-test.mjs     # 18 项：Host 全链路 —— 余额四条腿、API Key 回退、wire 契约
-node tests/client-test.mjs    # 67 项：两个浏览器半边在 Node 假宿主里真跑（渲染、配色分级、去描边权重）
+node tests/client-test.mjs    # 119 项：两个浏览器半边在 Node 假宿主里真跑（渲染、配色分级、去描边权重、
+                              #        轨道前缀解析与容器查询覆盖、引用块拼装/解析/移除、选区工具条）
 ```
 
 `client-test.mjs` 会 stub 出 `window.__ModuleLoader__` / `document` / 最小 React，因此样式与渲染分支的改动能被测试直接抓到，
 包括「样式表里不能出现反引号」（会截断模板字符串）和「覆盖规则的权重必须高于渲染器规则」这两类踩过的坑。
+轮次小横条的 fixture 是从 `app.asar` 里**逐字抄出来的**真实 `TurnNavigator.module.css` 文本，
+所以"藏轨道的确实是那条 `@container`"以及"覆盖落回同一个条件且权重更高"都是算出来的，不是猜的。
 
 ## 想再加一个 bundle
 
