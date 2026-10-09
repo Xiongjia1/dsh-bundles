@@ -217,7 +217,10 @@ checkThat('ready strips render the balance', text.includes('¥123.46'), `got: ${
 checkThat('ready strips render the bonus row', text.includes('¥8.00'), `got: ${text}`);
 checkThat('ready strips render the session cost', text.includes('¥2.232'), `got: ${text}`);
 checkThat('ready strips render the turn cost', text.includes('¥0.4200'), `got: ${text}`);
-checkThat('ready strips render the cache share', text.includes('100%'), `got: ${text}`);
+// The shipped session strip already reports tokens and the cache share, so this strip must
+// not print a second readout of the same quantities (they disagree in the last digit).
+checkThat('the strip leaves token counts to the shipped strip', !itemsOf(tree).some((entry) => entry.label === 'tokens'));
+checkThat('the strip leaves the cache share to the shipped strip', !itemsOf(tree).some((entry) => entry.label === '缓存'));
 
 text = textOf(renderWith({ status: 'ready', currency: 'CNY', total: '0', bonus: '0', wallets: 0, source: 'account' }));
 checkThat('zero balance shows ¥0.00', text.includes('¥0.00'), `got: ${text}`);
@@ -265,7 +268,7 @@ check('session 20.01 -> bad', severityOf(renderWith({ status: 'ready', currency:
 const coloured = renderWith({ status: 'ready', currency: 'CNY', total: '30', bonus: '8', source: 'account' }, 20.01);
 check('bonus row stays neutral', severityOf(coloured, '赠送'), 'none');
 check('turn row stays neutral', severityOf(coloured, '本轮'), 'none');
-check('tokens row stays neutral', severityOf(coloured, 'tokens'), 'none');
+check('tokens row is gone (the shipped strip owns it)', severityOf(coloured, 'tokens'), '(no item labelled tokens)');
 const overridden = strip({
   useProjection: () =>
     projectionWith(
@@ -279,6 +282,7 @@ check('override: session 2.23 -> bad under red 2', severityOf(overridden, '本�
 // The tooltip keeps the bucket detail and the verdict.
 const detail = renderWith({ status: 'failed', reason: 'platform-query-failed' }).props.title;
 checkThat('tooltip lists the token buckets', detail.includes('cache read: 56480384'), detail);
+checkThat('tooltip keeps the total and the cache share the strip gave up', detail.includes('total: 57.00M tok · cache hit 100%'), detail);
 checkThat('tooltip names the balance outcome', detail.includes('balance: failed'), detail);
 
 // --- skin half: the turn rail ------------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Cost Meter",
-    "description": "Host-side balance read and usage pricing, plus a status strip with balance, session cost, turn cost, tokens and cache hit."
+    "description": "Host-side balance read and usage pricing, plus a status strip with balance, bonus, session cost and turn cost (tokens and cache stay with the shipped session strip; hover the strip for the full bucket detail)."
   }
 }

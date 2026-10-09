@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-cost-meter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Balance and per-conversation cost for the DSH Web client: a Host-side usage fold priced by the published DeepSeek tariff, rendered as a coloured status strip.",
@@ -19,7 +19,7 @@
   ],
   "meta": {
     "title": "Cost Meter",
-    "description": "Host-side balance read and usage pricing, plus a status strip with balance, session cost, turn cost, tokens and cache hit."
+    "description": "Host-side balance read and usage pricing, plus a status strip with balance, bonus, session cost and turn cost (tokens and cache stay with the shipped session strip)."
   },
   "dsh": {
     "bundle": {

@@ -323,6 +323,7 @@ html body[data-ds-dark-theme] {
                   `cache write: ${Math.round(projection.cacheWriteTokens)} tok`,
                   `output: ${Math.round(projection.outputTokens)} tok`,
                   `reasoning: ${Math.round(projection.reasoningTokens)} tok`,
+                  `total: ${formatTokens(projection.totalTokens)} tok · cache hit ${Math.round(projection.cacheHitPercent)}%`,
                   `priced steps: ${projection.pricedSteps}${projection.unpricedSteps > 0 ? ` (+${projection.unpricedSteps} fallback)` : ''}`,
                   `holidays in table: ${projection.holidayCount ?? 0}`,
                 ].join('\n')
@@ -355,11 +356,10 @@ html body[data-ds-dark-theme] {
                 item(labels.turn, formatCost(projection.currentTurnCost, currency), 'codex-cost-strip__value--muted'),
               );
             }
-            children.push(separator());
-            children.push(item(labels.tokens, formatTokens(projection.totalTokens), 'codex-cost-strip__value--muted'));
-            children.push(
-              item(labels.cache, `${Math.round(projection.cacheHitPercent)}%`, 'codex-cost-strip__value--muted'),
-            );
+            // Token counts and the cache share are deliberately NOT repeated here: the shipped
+            // session strip already reports both right beside this one ("148M tok · 缓存命中
+            // 99.6%"), and two live readouts of the same quantity that disagree in the last
+            // digit read as a bug. They stay reachable in this strip's hover detail.
             if (fallback) children.push(item('', labels.fallbackNote, 'codex-cost-strip__value--sev-warn'));
           } else {
             children.push(item('', labels.pending, 'codex-cost-strip__value--muted'));
