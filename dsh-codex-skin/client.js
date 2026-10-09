@@ -15,11 +15,12 @@
  *   window loses it entirely. The override has to name the rail's build-hashed classes, which
  *   are discovered at runtime from the shipped stylesheet's own text.
  *
- * - A selected passage of a reply can be attached to the next message ("添加到对话"). The
- *   attach path is deliberately draft-based: the passage is written into the composer draft as
- *   a quote block, so the chip advertises literally what will be sent, it survives a refresh
- *   and an undo, and the whole feature stays in the browser half — no Host half, so no app
- *   restart is needed to change it.
+ * - A selected passage of a reply can be attached to the next message ("添加到对话"). It
+ *   becomes an ordinary DRAFT FILE ATTACHMENT: `ui-conversation`'s controller registers the
+ *   draft and uploads it, the shipped attachment rail draws its card, and the shipped send
+ *   path carries it as a file part of the next message. Nothing is written into the composer
+ *   text, so nothing is duplicated on screen, and upload progress, failure and removal stay
+ *   the ones every attachment already has.
  *
  * The Host half owns no behaviour.
  */
@@ -27,102 +28,49 @@ window.__ModuleLoader__.load({
   id: '@local/dsh-codex-skin',
   factory(require) {
     const React = require('react');
-    const h = React.createElement;
     const PLUGIN_ID = '@local/dsh-codex-skin';
 
     /** Dictionary namespace owned by this plugin. */
     const NS = 'codex-skin';
 
-    /** The composer zone the annotation chip rides: full-width entries above the card. */
+    /** The composer zone the sensor rides: full-width entries above the card. */
     const DOCK_SLOT = 'conversation.input.dock';
 
-    /** The conversation's reading surface; a selection outside it is not quotable. */
+    /** The conversation's reading surface; a selection outside it is not attachable. */
     const SCROLL_ROOT = '[data-conversation-scroll]';
 
     /** Plugin-css key of the stylesheet whose text carries the rail's class prefix. */
     const RAIL_STYLE_KEY = 'TurnNavigator.module.css';
 
     /** Longest selection carried as one annotation. */
-    const MAX_QUOTE_CHARS = 20000;
+    const MAX_ANNOTATION_CHARS = 20000;
+
+    /** How long the card-title sync keeps re-checking while React commits the card. */
+    const TITLE_SYNC_DELAYS = [0, 120, 400, 900];
 
     const zh = {
       'annotate.add': '添加到对话',
-      'annotate.chip.one': '1 条注释',
-      'annotate.chip.many': '{n} 条注释',
-      'annotate.selected': '所选文本',
-      'annotate.remove': '移除',
+      'annotate.file': '1条注释',
     };
     const en = {
       'annotate.add': 'Add to conversation',
-      'annotate.chip.one': '1 note',
-      'annotate.chip.many': '{n} notes',
-      'annotate.selected': 'Selected text',
-      'annotate.remove': 'Remove',
+      'annotate.file': '1 note',
     };
 
-    // ---------------------------------------------------------------- quote blocks ----
-    // A quote block is the only annotation state there is. Everything else — the chip, its
-    // count, the full text on hover, removal — is a read of the draft, so an undo, a refresh
-    // or a hand edit can never desynchronise the chip from what will actually be sent.
-
-    /** A line that belongs to a quote block. */
-    const QUOTE_LINE = /^>(\s|$)/u;
+    // ---------------------------------------------------------------- selection text ----
 
     /**
-     * Collapse a selection into one quote block.
-     * @param text - the selected text.
-     * @returns the block to prepend to a draft, or undefined when the selection carries none.
+     * Normalize a selection into annotation text.
+     * @param raw - the selected text.
+     * @returns the text to attach, or undefined when the selection carries nothing.
      */
-    function quoteBlock(text) {
-      const lines = String(text ?? '').replace(/\r\n?/gu, '\n').split('\n');
-      const trimmed = lines.map((line) => line.replace(/\s+$/u, ''));
-      while (trimmed.length > 0 && trimmed[0].trim() === '') trimmed.shift();
-      while (trimmed.length > 0 && trimmed[trimmed.length - 1].trim() === '') trimmed.pop();
-      if (trimmed.length === 0) return undefined;
-      const quoted = trimmed.map((line) => (line === '' ? '>' : `> ${line}`));
-      return `${quoted.join('\n')}\n\n`;
-    }
-
-    /**
-     * Split a draft into its leading annotations and the rest of the text.
-     *
-     * Only the leading run is read: an attach always prepends, and a quote a user typed
-     * mid-draft is their own prose. A blank line separates two attached blocks; the blank
-     * line after the last one belongs to the block, not to the draft.
-     *
-     * @param draft - the composer draft text.
-     * @returns the annotations, in attach order, and the draft without them.
-     */
-    function splitLeadingQuotes(draft) {
-      const lines = String(draft ?? '').replace(/\r\n?/gu, '\n').split('\n');
-      const annotations = [];
-      let index = 0;
-      while (index < lines.length && QUOTE_LINE.test(lines[index])) {
-        const body = [];
-        while (index < lines.length && QUOTE_LINE.test(lines[index])) {
-          body.push(lines[index].replace(/^>\s?/u, ''));
-          index += 1;
-        }
-        while (body.length > 0 && body[body.length - 1].trim() === '') body.pop();
-        annotations.push({ text: body.join('\n') });
-        // The blank line a block ends with belongs to the block, so it never reaches `rest`.
-        while (index < lines.length && lines[index].trim() === '') index += 1;
-      }
-      return { annotations, rest: lines.slice(index).join('\n') };
-    }
-
-    /**
-     * Drop one leading annotation from a draft.
-     * @param draft - the composer draft text.
-     * @param remove - index of the annotation to drop.
-     * @returns the next draft.
-     */
-    function withoutAnnotation(draft, remove) {
-      const { annotations, rest } = splitLeadingQuotes(draft);
-      const kept = annotations
-        .filter((_annotation, index) => index !== remove)
-        .map((annotation) => quoteBlock(annotation.text) ?? '');
-      return `${kept.join('')}${rest}`;
+    function selectionText(raw) {
+      const text = String(raw ?? '')
+        .replace(/\r\n?/gu, '\n')
+        .replace(/[ \t]+$/gmu, '')
+        .trim();
+      if (text === '') return undefined;
+      return text.length > MAX_ANNOTATION_CHARS ? text.slice(0, MAX_ANNOTATION_CHARS) : text;
     }
 
     // ---------------------------------------------------------------- rail discovery ----
@@ -148,7 +96,7 @@ window.__ModuleLoader__.load({
       return `
 /* ---- Turn rail: visible at every width, Codex bar geometry ---------------------- */
 /* The shipped module hides the rail below 900px of CONTAINER width with
-   @container (width <= 900px) { .frame { display: none } }. Answering that block keeps the
+   @container (width<=900px) { .frame { display: none } }. Answering that block keeps the
    query conditions identical, and the body prefix adds the weight that wins the cascade
    without !important and without depending on stylesheet order. */
 @container (width<=900px) {
@@ -193,89 +141,9 @@ html body .${prefix}_preview {
 `;
     }
 
-    /** The annotation chip, its hover card, and the floating selection bar. */
-    const ANNOTATION_CSS = `
+    /** The floating bar that offers the attach action over a selection. */
+    const BAR_CSS = `
 /* ---- Attach a selection to the next message ------------------------------------- */
-.codex-annotations {
-  position: relative;
-  display: flex;
-  align-items: center;
-  pointer-events: auto;
-}
-.codex-annotations__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-  font: var(--dsw-font-xs-strong-13);
-  cursor: default;
-  user-select: none;
-}
-.codex-annotations__icon {
-  flex: none;
-  opacity: .75;
-}
-.codex-annotations__pop {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 30;
-  box-sizing: border-box;
-  width: min(460px, 60vw);
-  max-height: 300px;
-  overflow-y: auto;
-  gap: 10px;
-  flex-direction: column;
-  padding: 12px;
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-menu-surface-fill);
-  box-shadow: var(--dsw-elevation-soft);
-  color: var(--dsw-alias-label-primary);
-}
-.codex-annotations:hover .codex-annotations__pop,
-.codex-annotations:focus-within .codex-annotations__pop {
-  display: flex;
-}
-.codex-annotations__item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-bottom: 10px;
-  border-bottom: .5px solid var(--dsw-alias-border-l2);
-}
-.codex-annotations__item:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-.codex-annotations__caption {
-  color: var(--dsw-alias-label-tertiary);
-  font: var(--dsw-font-xxs-12);
-}
-.codex-annotations__text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 160px;
-  overflow-y: auto;
-  color: var(--dsw-alias-label-secondary);
-  font: var(--dsw-font-xs-strong-13);
-}
-.codex-annotations__remove {
-  align-self: flex-start;
-  padding: 0;
-  border: 0;
-  background: 0 0;
-  color: var(--dsw-alias-label-tertiary);
-  font: var(--dsw-font-xxs-12);
-  cursor: pointer;
-}
-.codex-annotations__remove:hover {
-  color: var(--dsw-alias-state-error-primary, var(--dsw-alias-label-primary));
-}
 .codex-annotate-bar {
   position: fixed;
   z-index: 50;
@@ -477,109 +345,145 @@ html body samp {
 
     // ---------------------------------------------------------------- draft bridge ----
     // The selection bar lives outside the slot system, so it has no props of its own. The
-    // chip publishes the composer's live draft and action surface here on every render — the
-    // selector hook re-renders the chip on each draft change, which keeps both current.
+    // sensor mounted in the composer dock publishes the active Session and its input actions
+    // here — the bar then attaches through exactly the surface the composer itself uses.
 
-    const bridge = { draft: '', actions: undefined, session: undefined };
+    const bridge = { sessionId: undefined, inputActions: undefined };
+
+    /** The annotation texts this client attached, per Session, in attach order. */
+    const annotations = new Map();
+
+    /** Read one Client service without making it a hard dependency. */
+    function readService(ctx, key) {
+      try {
+        return typeof ctx?.get === 'function' ? ctx.get(key) : undefined;
+      } catch (error) {
+        console.error(`[codex-skin] service read failed: ${key}`, error);
+        return undefined;
+      }
+    }
+
+    /** Report one unexpected condition once, instead of on every click. */
+    const warned = new Set();
+    function warnOnce(key, message) {
+      if (warned.has(key)) return;
+      warned.add(key);
+      console.error(`[codex-skin] ${message}`);
+    }
 
     /**
-     * Attach a selection to the next message.
-     * @param text - the selected text.
-     * @returns whether the draft took it (false with no live composer).
+     * Attach a selection to the next message as a draft file.
+     *
+     * The draft file is `ui-conversation`'s own attachment object: registering it starts the
+     * upload, the shipped rail draws its card, and the shipped send path serializes it as a
+     * file part — so this feature adds no delivery machinery of its own and writes nothing
+     * into the composer text.
+     *
+     * @param ctx - the Client plugin context.
+     * @param raw - the selected text.
+     * @returns whether an attachment draft was registered.
      */
-    function attachSelection(text) {
-      const block = quoteBlock(text);
-      const actions = bridge.actions;
-      if (block === undefined || actions === undefined || typeof actions.setDraft !== 'function') return false;
-      actions.setDraft(`${block}${bridge.draft}`);
+    function attachSelection(ctx, raw) {
+      const text = selectionText(raw);
+      if (text === undefined) return false;
+      const sessionId = bridge.sessionId;
+      const actions = bridge.inputActions;
+      if (typeof sessionId !== 'string' || sessionId === '') return false;
+      if (actions === undefined || typeof actions.addAttachments !== 'function') return false;
+      const sessions = readService(ctx, 'sessions');
+      if (sessions !== undefined && typeof sessions.binding === 'function' && sessions.binding(sessionId) === undefined) return false;
+      const conversation = readService(ctx, 'conversation');
+      if (conversation === undefined || typeof conversation.createDrafts !== 'function') {
+        // Should not happen (the service ships with ui-conversation), and a silent false here
+        // would leave the click looking broken — so say it once, in the console.
+        warnOnce('conversation', 'the conversation service exposes no createDrafts(); the selection cannot be attached');
+        return false;
+      }
+      if (typeof File !== 'function') return false;
+
+      const name = t('annotate.file');
+      const drafts = conversation.createDrafts(sessionId, [new File([text], name, { type: 'text/plain' })]);
+      const ids = (Array.isArray(drafts) ? drafts : [])
+        .map((draft) => draft?.id)
+        .filter((id) => typeof id === 'string');
+      if (ids.length === 0) return false;
+      if (actions.addAttachments(ids) === false) return false;
+
+      const list = annotations.get(sessionId) ?? [];
+      list.push(text);
+      annotations.set(sessionId, list);
+      syncCardTitles(document, sessionId);
       return true;
     }
 
-    /** Whether a live composer can receive an annotation. */
+    /**
+     * Give each annotation's card the excerpt as its tooltip.
+     *
+     * The shipped file card titles itself with the file name, so hovering a card called
+     * "1条注释" would otherwise say nothing about what it carries. The card commits with the
+     * attachment rail's render, which lands a frame or more after `addAttachments`, so the
+     * sync retries a few times instead of assuming one tick.
+     *
+     * @param doc - the document.
+     * @param sessionId - the Session whose cards to label.
+     * @param delays - remaining retry delays.
+     * @returns how many cards took a title.
+     */
+    function syncCardTitles(doc, sessionId, delays = TITLE_SYNC_DELAYS) {
+      if (typeof doc?.querySelectorAll !== 'function') return 0;
+      const list = annotations.get(sessionId) ?? [];
+      if (list.length === 0) return 0;
+      let cards;
+      try {
+        cards = [...doc.querySelectorAll(`[title="${t('annotate.file')}"]`)];
+      } catch (error) {
+        console.error('[codex-skin] annotation card lookup failed', error);
+        return 0;
+      }
+      let applied = 0;
+      cards.forEach((card, index) => {
+        const text = list[index];
+        if (text === undefined || card === null || card === undefined) return;
+        card.title = text;
+        applied += 1;
+      });
+      if (applied < list.length && delays.length > 1 && typeof setTimeout === 'function') {
+        setTimeout(() => syncCardTitles(doc, sessionId, delays.slice(1)), delays[1]);
+      }
+      return applied;
+    }
+
+    /** Whether a live composer can take an attachment right now. */
     function canAttach() {
-      return bridge.actions !== undefined && typeof bridge.actions.setDraft === 'function';
+      return bridge.inputActions !== undefined && typeof bridge.sessionId === 'string' && bridge.sessionId !== '';
     }
 
     // ---------------------------------------------------------------- annotations UI ----
 
-    const ICON_PATH = 'M2.6 3.4h10.8v6.4h-5.6l-3.1 2.6v-2.6h-2.1z';
-
-    /** The chip: one annotation per quote block in the draft, full text on hover. */
-    function createChip() {
-      return function AnnotationChip(props) {
-        let draft = '';
+    /**
+     * The sensor: publishes the active Session and its input actions, and draws nothing.
+     * @returns the renderless slot component.
+     */
+    function createSensor() {
+      return function AnnotationSensor(props) {
         try {
-          if (typeof props?.useInput === 'function') draft = String(props.useInput((value) => value?.draft ?? '') ?? '');
+          bridge.inputActions = props?.inputActions;
+          bridge.sessionId = typeof props?.sessionId === 'string' ? props.sessionId : undefined;
         } catch (error) {
-          console.error('[codex-skin] input read failed', error);
+          console.error('[codex-skin] annotation sensor failed', error);
         }
-        bridge.draft = draft;
-        bridge.actions = props?.inputActions;
-        bridge.session = props?.sessionId;
-
-        try {
-          const { annotations } = splitLeadingQuotes(draft);
-          if (annotations.length === 0) return null;
-          const label = annotations.length === 1 ? t('annotate.chip.one') : t('annotate.chip.many', { n: annotations.length });
-          const items = annotations.map((annotation, index) =>
-            h(
-              'div',
-              { className: 'codex-annotations__item', key: `annotation-${index}` },
-              h('div', { className: 'codex-annotations__caption' }, t('annotate.selected')),
-              h('div', { className: 'codex-annotations__text' }, annotation.text),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'codex-annotations__remove',
-                  onClick: () => {
-                    if (canAttach()) bridge.actions.setDraft(withoutAnnotation(bridge.draft, index));
-                  },
-                },
-                t('annotate.remove'),
-              ),
-            ),
-          );
-          return h(
-            'div',
-            { className: 'codex-annotations' },
-            h(
-              'div',
-              { className: 'codex-annotations__chip' },
-              icon(),
-              h('span', { className: 'codex-annotations__label' }, label),
-            ),
-            h('div', { className: 'codex-annotations__pop', role: 'tooltip' }, items),
-          );
-        } catch (error) {
-          console.error('[codex-skin] annotation chip render failed', error);
-          return null;
-        }
+        return null;
       };
-    }
-
-    /** The chip's comment glyph, drawn inline so the bundle stays asset-free. */
-    function icon() {
-      return h(
-        'svg',
-        {
-          className: 'codex-annotations__icon',
-          viewBox: '0 0 16 16',
-          width: 13,
-          height: 13,
-          'aria-hidden': 'true',
-        },
-        h('path', { d: ICON_PATH, fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round' }),
-      );
     }
 
     /**
      * The floating bar shown over a selection inside the conversation.
+     * @param ctx - the Client plugin context.
      * @param t - bound translator.
      * @param env - document/window override, used by the offline tests.
      * @returns a disposer, or undefined where the document cannot carry a floating node.
      */
-    function mountAnnotateBar(t, env) {
+    function mountAnnotateBar(ctx, t, env) {
       const doc = env?.document ?? (typeof document === 'undefined' ? undefined : document);
       const win = env?.window ?? (typeof window === 'undefined' ? undefined : window);
       if (doc === undefined || win === undefined) return undefined;
@@ -595,15 +499,15 @@ html body samp {
       host.appendChild(button);
       doc.body.appendChild(host);
 
-      let quoted = '';
+      let selected = '';
 
       function hide() {
         host.hidden = true;
-        quoted = '';
+        selected = '';
       }
 
       function show(text, rect) {
-        quoted = text;
+        selected = text;
         button.textContent = t('annotate.add');
         button.disabled = !canAttach();
         host.hidden = false;
@@ -615,7 +519,7 @@ html body samp {
       }
 
       /** The conversation's reading surface, never the composer or this bar. */
-      function quotable(range) {
+      function attachable(range) {
         const node = range?.commonAncestorContainer;
         const element = node === undefined || node === null ? undefined : node.nodeType === 1 ? node : node.parentElement;
         if (element === undefined || element === null || typeof element.closest !== 'function') return false;
@@ -633,9 +537,9 @@ html body samp {
         } catch (error) {
           return hide();
         }
-        if (!quotable(range)) return hide();
-        const text = String(selection.toString() ?? '').slice(0, MAX_QUOTE_CHARS).replace(/\s+$/u, '');
-        if (text.trim().length < 2) return hide();
+        if (!attachable(range)) return hide();
+        const text = selectionText(selection.toString());
+        if (text === undefined || text.length < 2) return hide();
         show(text, typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : undefined);
       }
 
@@ -654,8 +558,8 @@ html body samp {
       }
 
       function onButtonClick() {
-        if (quoted === '' || !canAttach()) return hide();
-        if (attachSelection(quoted)) {
+        if (selected === '' || !canAttach()) return hide();
+        if (attachSelection(ctx, selected)) {
           if (typeof win.getSelection === 'function') win.getSelection()?.removeAllRanges?.();
           hide();
         }
@@ -734,8 +638,8 @@ html body samp {
       return Object.entries(params).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), template);
     };
 
-    // `slots` is the one hard dependency: the chip is registered through it. The locale
-    // service is read softly with ctx.get, so a client without it still gets the skin.
+    // `slots` is the one hard dependency: the sensor rides the composer dock. Every other
+    // service is read softly with ctx.get, so a client without one still gets the skin.
     const inject = ['slots'];
 
     function apply(ctx) {
@@ -751,27 +655,27 @@ html body samp {
         t = locale.bind(NS);
       }
       effect(insertSkin, 'codex-skin stylesheet');
-      effect(() => insertStyle(document, 'annotations', ANNOTATION_CSS), 'codex-skin annotation stylesheet');
+      effect(() => insertStyle(document, 'bar', BAR_CSS), 'codex-skin selection-bar stylesheet');
       effect(() => insertRailStyle(document), 'codex-skin turn-rail override');
-      effect(() => mountAnnotateBar(t, undefined), 'codex-skin selection bar');
+      effect(() => mountAnnotateBar(ctx, t, undefined), 'codex-skin selection bar');
 
       ctx.slots.inject(DOCK_SLOT, () =>
-        ctx.slots.register({ name: DOCK_SLOT, id: 'codex-annotations', order: 30 }, createChip()),
+        ctx.slots.register({ name: DOCK_SLOT, id: 'codex-annotations', order: 30 }, createSensor()),
       );
     }
 
     // Read by the offline tests; the module loader only ever looks at inject/apply/name.
     apply.__test = {
+      annotations,
       attachSelection,
-      canAttach,
       bridge,
-      quoteBlock,
+      canAttach,
+      mountAnnotateBar,
       railCss,
       railPrefixFrom,
-      splitLeadingQuotes,
-      withoutAnnotation,
-      mountAnnotateBar,
-      renderChip: createChip(),
+      selectionText,
+      syncCardTitles,
+      renderSensor: createSensor(),
     };
 
     return { inject, apply, name: 'codex-skin' };

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Codex Skin",
-    "description": "Appearance plus two interaction touches: neutral palette, blue user bubble, composer halo, chip-style inline code; the turn rail shows at every window width (Codex style); a selected passage can be attached to the next message."
+    "description": "Appearance plus two interaction touches: neutral palette, blue user bubble, composer halo, chip-style inline code; the turn rail shows at every window width (Codex style); a selected passage is attached to the next message as a file named \"1 note\"."
   }
 }

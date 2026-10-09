@@ -288,8 +288,8 @@ checkThat('tooltip names the balance outcome', detail.includes('balance: failed'
 const internals = skin.plugin.apply.__test;
 const railTag = styleTags.find((entry) => entry.dataset.pluginCss === '@local/dsh-codex-skin/rail');
 const railCssText = railTag?.textContent ?? '';
-const annotationTag = styleTags.find((entry) => entry.dataset.pluginCss === '@local/dsh-codex-skin/annotations');
-const annotationCssText = annotationTag?.textContent ?? '';
+const barTag = styleTags.find((entry) => entry.dataset.pluginCss === '@local/dsh-codex-skin/bar');
+const barCssText = barTag?.textContent ?? '';
 
 check('rail: the shipped band really is the hider', RAIL_FIXTURE.includes('@container (width<=900px){.xpvNua_frame{display:none}}'), true);
 check('rail: prefix discovered from the shipped stylesheet', internals.railPrefixFrom(RAIL_FIXTURE), 'xpvNua');
@@ -306,66 +306,81 @@ checkThat('rail: the discovery path is the only place the prefix is named', inte
 checkThat('rail: no backtick inside its stylesheet', !railCssText.includes('`'));
 
 // --- skin half: attaching a selection to the next message --------------------------
-// The quote block in the draft is the whole annotation state, so the chip can never
-// advertise something the next message will not carry.
-check('quote: one line', internals.quoteBlock('hello'), '> hello\n\n');
-check('quote: one marker per line', internals.quoteBlock('a\nb'), '> a\n> b\n\n');
-check('quote: a blank line inside stays quoted', internals.quoteBlock('a\n\nb'), '> a\n>\n> b\n\n');
-check('quote: surrounding blank lines are trimmed', internals.quoteBlock('\n\n  a  \n\n'), '>   a\n\n');
-check('quote: CRLF is normalised', internals.quoteBlock('a\r\nb'), '> a\n> b\n\n');
-check('quote: a whitespace-only selection is not quotable', internals.quoteBlock('   \n\t'), undefined);
+// The annotation IS a draft file attachment: ui-conversation registers it, uploads it, the
+// shipped rail draws its card, and the shipped send path carries it as a file part. So the
+// skin's whole job is to hand the bytes over — and, because that path never touches the
+// composer text, the excerpt can never be duplicated into the input box.
+const draftsCreated = [];
+const added = [];
+const attachedFile = { parts: [], name: '', type: '' };
+globalThis.File = class {
+  constructor(parts, name, options) {
+    attachedFile.parts = parts;
+    attachedFile.name = name;
+    attachedFile.type = options?.type ?? '';
+  }
+};
+const actions = {
+  addAttachments: (ids) => {
+    added.push(ids);
+    return true;
+  },
+};
+const annotateCtx = {
+  get: (key) =>
+    key === 'sessions'
+      ? { binding: (sessionId) => (sessionId === 'session-1' ? { sessionId } : undefined) }
+      : key === 'conversation'
+        ? {
+            createDrafts: (sessionId, files) => {
+              draftsCreated.push({ sessionId, files });
+              return files.map((_file, index) => ({ id: `draft-${index}` }));
+            },
+          }
+        : undefined,
+};
 
-check('draft: no annotation reads as none', internals.splitLeadingQuotes('hello'), { annotations: [], rest: 'hello' });
-check('draft: one block is one annotation', internals.splitLeadingQuotes('> hi\n\nthere'), {
-  annotations: [{ text: 'hi' }],
-  rest: 'there',
-});
-check('draft: two blocks are two annotations', internals.splitLeadingQuotes('> a\n\n> b\n\nz'), {
-  annotations: [{ text: 'a' }, { text: 'b' }],
-  rest: 'z',
-});
-check('draft: an empty quote line is kept inside the block', internals.splitLeadingQuotes('> a\n>\n> b\n\nz'), {
-  annotations: [{ text: 'a\n\nb' }],
-  rest: 'z',
-});
-check('draft: a quote that is not leading is the user own prose', internals.splitLeadingQuotes('x\n> y'), {
-  annotations: [],
-  rest: 'x\n> y',
-});
-check('remove: the first of two', internals.withoutAnnotation('> a\n\n> b\n\nz', 0), '> b\n\nz');
-check('remove: the only one leaves the draft', internals.withoutAnnotation('> a\n\nz', 0), 'z');
-check('remove: an out-of-range index keeps everything', internals.withoutAnnotation('> a\n\nz', 5), '> a\n\nz');
+check('text: a selection keeps its interior newlines', internals.selectionText('  a\r\nb  '), 'a\nb');
+check('text: a whitespace-only selection carries nothing', internals.selectionText(' \n\t '), undefined);
+check('text: a huge selection is capped', internals.selectionText('x'.repeat(25000)).length, 20000);
 
-// The selection bar lives outside the slot system, so the chip publishes the composer it is
-// mounted in — that bridge is what the bar attaches through.
-const draftWrites = [];
-const composer = (draft) => ({
-  useInput: (select) => select({ draft }),
-  inputActions: { setDraft: (text) => draftWrites.push(text) },
-  sessionId: 'session-1',
-});
-const Chip = internals.renderChip;
-check('chip: quiet with no live composer', Chip({ useInput: (select) => select({ draft: 'x' }) }), null);
-check('attach: refused while no composer published itself', internals.attachSelection('quoted'), false);
-check('chip: silent while the draft carries no quote', Chip(composer('x')), null);
-check('attach: writes the quote ahead of the draft', internals.attachSelection('quoted\nlines'), true);
-check('attach: prepends exactly one quote block', draftWrites, ['> quoted\n> lines\n\nx']);
+const sensor = internals.renderSensor;
+check('sensor: draws nothing into the composer dock', sensor({ sessionId: 'session-1', inputActions: actions }), null);
+check('sensor: publishes the live session', internals.bridge.sessionId, 'session-1');
+checkThat('sensor: a live session can take an attachment', internals.canAttach());
+check('attach: refused with nothing selected', internals.attachSelection(annotateCtx, '   '), false);
+check('attach: registers exactly one draft file', internals.attachSelection(annotateCtx, 'quoted\nlines'), true);
+check('attach: the draft belongs to the live session', draftsCreated.at(-1).sessionId, 'session-1');
+check('attach: one file is registered', draftsCreated.at(-1).files.length, 1);
+check('attach: the file carries the selection', attachedFile.parts, ['quoted\nlines']);
+check('attach: the file is named for the chip', attachedFile.name, '1条注释');
+check('attach: the file is plain text', attachedFile.type, 'text/plain');
+check('attach: the draft id reaches the composer', added.at(-1), ['draft-0']);
+check('attach: the excerpt is remembered for the card tooltip', internals.annotations.get('session-1'), ['quoted\nlines']);
 
-const withQuote = Chip(composer('> quoted\n> lines\n\nx'));
-const withQuoteText = JSON.stringify(withQuote);
-checkThat('chip: advertises one annotation', withQuoteText.includes('1 条注释'), withQuoteText);
-checkThat('chip: carries the full text for its hover card', withQuoteText.includes('quoted\\nlines'), withQuoteText);
-checkThat('chip: names the section it quotes', withQuoteText.includes('所选文本'), withQuoteText);
-const twoQuotes = JSON.stringify(Chip(composer('> a\n\n> b\n\nx')));
-checkThat('chip: counts two annotations', twoQuotes.includes('2 条注释'), twoQuotes);
+const noConversation = { get: (key) => (key === 'sessions' ? { binding: () => ({}) } : undefined) };
+check('attach: refused when the conversation service is missing', internals.attachSelection(noConversation, 'quoted'), false);
+const noBinding = { get: (key) => (key === 'sessions' ? { binding: () => undefined } : annotateCtx.get(key)) };
+check('attach: refused for a session with no binding', internals.attachSelection(noBinding, 'quoted'), false);
+sensor({ sessionId: 'session-1', inputActions: { addAttachments: () => false } });
+check('attach: refused while the composer refuses attachments', internals.attachSelection(annotateCtx, 'quoted'), false);
+sensor({ sessionId: '', inputActions: actions });
+check('attach: refused with no live session', internals.attachSelection(annotateCtx, 'quoted'), false);
+sensor({ sessionId: 'session-1', inputActions: actions });
 
-const single = Chip(composer('> quoted\n> lines\n\nx'));
-const removeButton = single.children[1].children[0].children[2];
-removeButton.props.onClick();
-check('chip: removing the annotation rewrites the draft', draftWrites.at(-1), 'x');
-checkThat('chip: the hover card is hidden until hover or focus', annotationCssText.includes('.codex-annotations:hover .codex-annotations__pop'));
-checkThat('annotation sheet avoids !important', !annotationCssText.includes('!important'));
-checkThat('annotation sheet has no backtick', !annotationCssText.includes('`'));
+// The shipped card titles itself with the file name, so the excerpt is written back onto it
+// — that is what keeps "hover the chip to read the whole selection" true.
+const cards = [{ title: '1条注释' }, { title: '1条注释' }, { title: 'unrelated' }];
+const cardDoc = { querySelectorAll: (selector) => (selector === '[title="1条注释"]' ? cards : []) };
+internals.annotations.set('session-1', ['first excerpt', 'second excerpt']);
+check('titles: one card per annotation is labelled', internals.syncCardTitles(cardDoc, 'session-1'), 2);
+check('titles: the first card shows the first excerpt', cards[0].title, 'first excerpt');
+check('titles: the second card shows the second excerpt', cards[1].title, 'second excerpt');
+check('titles: an unrelated card keeps its own title', cards[2].title, 'unrelated');
+check('titles: a session with no annotation labels nothing', internals.syncCardTitles(cardDoc, 'session-9'), 0);
+checkThat('bar sheet avoids !important', !barCssText.includes('!important'));
+checkThat('bar sheet has no backtick', !barCssText.includes('`'));
+checkThat('bar sheet floats the bar above the page', barCssText.includes('position: fixed'));
 
 // The bar itself against a fake document: it may only appear for a selection inside the
 // conversation reading surface, and its one action prepends the quote the user saw.
@@ -426,7 +441,7 @@ function fakeSelection({ inConversation = true, text = 'quoted' } = {}) {
 const label = (key) => ({ 'annotate.add': '添加到对话' }[key] ?? key);
 
 const inChat = fakeBar(fakeSelection());
-const disposeBar = internals.mountAnnotateBar(label, inChat);
+const disposeBar = internals.mountAnnotateBar(annotateCtx, label, inChat);
 checkThat('bar: mounted into the document body', inChat.body.children.length === 1);
 checkThat('bar: listens for a selection release', typeof inChat.listeners.get('document:mouseup') === 'function');
 inChat.listeners.get('document:mouseup')();
@@ -436,20 +451,20 @@ check('bar: the action is localized', inChat.nodes.find((node) => node.tag === '
 check('bar: the action is enabled with a live composer', inChat.nodes.find((node) => node.tag === 'button').disabled, false);
 
 const inComposer = fakeBar(fakeSelection({ inConversation: false }));
-internals.mountAnnotateBar(label, inComposer);
+internals.mountAnnotateBar(annotateCtx, label, inComposer);
 inComposer.listeners.get('document:mouseup')();
 check('bar: a composer selection never raises it', inComposer.body.children[0].hidden, true);
 
 const tooShort = fakeBar(fakeSelection({ text: 'a' }));
-internals.mountAnnotateBar(label, tooShort);
+internals.mountAnnotateBar(annotateCtx, label, tooShort);
 tooShort.listeners.get('document:mouseup')();
 check('bar: a one-character selection never raises it', tooShort.body.children[0].hidden, true);
 
-draftWrites.length = 0;
-Chip(composer('x'));
+added.length = 0;
 inChat.listeners.get('document:mouseup')();
 inChat.listeners.get('button:click')();
-check('bar: clicking attaches the selection to the next message', draftWrites.at(-1), '> quoted\n\nx');
+check('bar: clicking attaches the selection as a draft file', attachedFile.parts, ['quoted']);
+check('bar: the clicked selection registers one draft', added.at(-1), ['draft-0']);
 check('bar: it hides once the annotation is taken', inChat.body.children[0].hidden, true);
 checkThat('bar: disposal unhooks and removes it', typeof disposeBar === 'function');
 
